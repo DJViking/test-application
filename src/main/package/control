@@ -1,0 +1,10 @@
+Package: @projectName@
+Version: @applicationVersion@-@applicationRelease@
+Section: Productivity/Scientific/Astronomy
+Priority: optional
+Architecture: amd64
+Provides: @projectName@
+Depends: xdg-utils
+Maintainer: @vendorName@
+Homepage: https://www.company.com/
+Description: @projectDescription@

@@ -1,0 +1,195 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.google.osdetector' version '1.6.2'
+    id 'org.beryx.runtime' version '1.11.4'
+}
+
+final def dateTime = LocalDateTime.now()
+final def buildDateFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss")
+final def releaseFormatter = DateTimeFormatter.ofPattern("yyyMMddHHmmss")
+ext {
+    buildDateTime = dateTime.format(buildDateFormatter)
+
+    osName = osdetector.os
+    hostName = InetAddress.getLocalHost().getHostName()
+    userName = System.getProperty('user.name')
+    userHome = System.getProperty('user.home')
+    createdBy = System.properties['java.version'] + " (" + System.properties['java.vendor'] + " " + System.properties['java.vm.version'] + ")"
+
+    applicationVersion = project.version
+    applicationRelease = "1"
+    applicationPrefix = "/opt/company"
+    
+    projectName = project.name
+    projectVersion = project.version
+    vendorName = "Company LLC"
+    vendorUrl = "https://www.company.com"
+    vendorPackager = "Company Build System <build@company.com>"
+
+    isLinux = osName == 'linux'
+    isMacOsX = osName == 'osx'
+    isWindows = osName == 'windows'
+}
+    
+repositories {
+    jcenter()
+}
+
+dependencies {
+    testImplementation(group: junitJupiterGroup, name: 'junit-jupiter-api', version: junitJupiterVersion)
+    testImplementation(group: junitJupiterGroup, name: 'junit-jupiter-params', version:junitJupiterVersion)
+    testRuntimeOnly(group: junitJupiterGroup, name: 'junit-jupiter-engine', version: junitJupiterVersion)
+
+    testRuntimeOnly(group: junitPlatformGroup, name: 'junit-platform-launcher', version: junitPlatformVersion)
+    testRuntimeOnly(group: junitPlatformGroup, name: 'junit-platform-runner', version: junitPlatformVersion)
+}
+
+application {
+    mainClass = 'test.application.App'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+task processPackageResources(type: Copy) {
+    into("${buildDir}/package")
+
+    from ('src/main/package')
+
+    from ('src/main/package') {
+        exclude "**/*.png"
+        exclude "**/*.bmp"
+        exclude "**/*.ico"
+        filter ReplaceTokens, tokens: [
+            projectName: project.name,
+            projectVersion: project.version,
+            projectDescription: project.description,
+            applicationPrefix: applicationPrefix,
+            applicationName: applicationName,
+            applicationVersion: applicationVersion,
+            applicationRelease: applicationRelease,
+            vendorName: vendorName,
+            vendorPackager: vendorPackager,
+            vendorUrl: vendorUrl,
+            userHome: userHome
+        ]
+    }
+}
+tasks.processResources.finalizedBy processPackageResources
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+java {
+    withJavadocJar()
+    withSourcesJar()
+}
+
+jar {
+    manifest {
+        attributes(
+            'Implementation-Title': projectName,
+            'Implementation-Version': projectVersion,
+            'Implementation-Vendor': vendorName,
+            'Implementation-Vendor-Id': project.group,
+            'Specification-Title': projectName,
+            'Specification-Version': projectVersion,
+            'Specification-Vendor': vendorName,
+            'Automatic-Module-Name': 'no.company.test',
+            'Application-Name': applicationName,
+            'Main-Class': project.application.mainClass,
+            'Class-Path': configurations.compile.collect { it.getName() }.join(' '),
+            'Built-By': userName,
+            'Build-Time': buildDateTime,
+            'Created-By': createdBy,
+            'Permissions': 'all-permissions',
+            'Codebase': '*'
+        )
+    }
+}
+
+runtime {
+    options = [
+        '--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages', '--bind-services'
+    ]
+
+    modules = [
+        "java.base", "java.xml", "java.sql", "java.desktop", "java.logging", "java.scripting",
+        "jdk.unsupported"
+    ]
+
+    jreDir = file("${buildDir}/runtime")
+
+    imageDir = file("${buildDir}/appImage")
+
+    imageZip = file("${buildDir}/${project.name}-${applicationVersion}-${applicationRelease}.zip")
+
+    jpackage {
+        jpackageHome = '/usr/java/jdk-14'
+
+        imageName = project.name
+
+        installerName = project.name
+
+        outputDir = "native"
+
+        resourceDir = processPackageResources.outputs.files.singleFile
+
+        appVersion = applicationVersion
+
+        jvmArgs = project.application.applicationDefaultJvmArgs
+
+        final def defaultArguments = [
+            '--verbose',
+            '--description', project.description,
+            '--vendor', project.vendorName
+        ]
+
+        final def linuxArguments = [ "--linux-app-release", applicationRelease, '--linux-shortcut' ]
+        final def windowsArguments = [ '--win-dir-chooser', '--win-menu', '--win-shortcut' ]
+        final def macArguments = []
+
+        def installDir = applicationPrefix
+        def installerArguments = []
+        if (isLinux) {
+            installerArguments = linuxArguments
+        } else if (isWindows) {
+            installDir = project.name
+            installerArguments = windowsArguments
+        } else if (isMacOsX) {
+            installerArguments = macArguments
+        }
+
+        imageOptions = [
+            *defaultArguments
+        ]
+
+        installerOptions = [
+            *defaultArguments,
+            "--install-dir", installDir,
+            *installerArguments
+        ]
+    }
+}
+
+task createNative {
+    group = 'Package'
+    description = 'Create an Application Runtime Image'
+
+    dependsOn jpackageImage
+}
+
+task createPackage {
+    group = 'Package'
+    description = "Create an Application Runtime Installer"
+
+    dependsOn jpackage
+}
